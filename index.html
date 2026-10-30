@@ -2,10 +2,8 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport"
-content="width=device-width, initial-scale=1.0">
-
-<title>SKYNET 1.1</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SKYNET 1.2</title>
 
 <style>
 * {
@@ -35,6 +33,7 @@ h1 {
 .status {
   color: #80eaff;
   margin-bottom: 25px;
+  min-height: 25px;
 }
 
 .chat {
@@ -60,6 +59,10 @@ h1 {
 
 .bot {
   color: #00d9ff;
+}
+
+.system {
+  color: #ffcc66;
 }
 
 .mic {
@@ -126,15 +129,21 @@ SYSTEM BEREIT
 <div class="chat" id="chat">
   <div class="message bot">
     SKYNET: System bereit.
-    Sprachsteuerung initialisiert.
+    Sprachsteuerung Version 1.2 initialisiert.
   </div>
 </div>
 
-<button class="mic" id="mic" onclick="startListening()">
-🎤
+<button
+  class="mic"
+  id="mic"
+  type="button"
+  onclick="toggleListening()">
+  🎤
 </button>
 
-<p>Zum Sprechen Mikrofon antippen</p>
+<p id="hint">
+Zum Sprechen Mikrofon antippen
+</p>
 
 <div class="controls">
   <input
@@ -142,13 +151,15 @@ SYSTEM BEREIT
     id="input"
     placeholder="Nachricht eingeben..."
   >
-  <button class="send" onclick="sendText()">
+  <button
+    class="send"
+    onclick="sendText()">
     SENDEN
   </button>
 </div>
 
 <p class="info">
-SKYNET 1.1 | VOICE INTERFACE
+SKYNET 1.2 | VOICE DIAGNOSTICS
 </p>
 
 </div>
@@ -159,17 +170,24 @@ const chat = document.getElementById("chat");
 const statusText = document.getElementById("status");
 const mic = document.getElementById("mic");
 const input = document.getElementById("input");
+const hint = document.getElementById("hint");
 
 const SpeechRecognition =
   window.SpeechRecognition ||
   window.webkitSpeechRecognition;
 
 let recognition = null;
+let listening = false;
+let receivedResult = false;
+let recognitionError = false;
+let manuallyStopped = false;
 
 function addMessage(sender, text) {
   const div = document.createElement("div");
+
   div.className = "message " +
-    (sender === "DU" ? "user" : "bot");
+    (sender === "DU" ? "user" :
+     sender === "SYSTEM" ? "system" : "bot");
 
   div.textContent = sender + ": " + text;
 
@@ -177,42 +195,54 @@ function addMessage(sender, text) {
   chat.scrollTop = chat.scrollHeight;
 }
 
+function setStatus(text) {
+  statusText.textContent = text;
+}
+
 function speak(text) {
   if (!("speechSynthesis" in window)) {
+    addMessage(
+      "SYSTEM",
+      "Sprachausgabe nicht unterstützt."
+    );
     return;
   }
 
-  speechSynthesis.cancel();
+  window.speechSynthesis.cancel();
 
-  const speech = new SpeechSynthesisUtterance(text);
+  const speech =
+    new SpeechSynthesisUtterance(text);
 
   speech.lang = "de-DE";
   speech.rate = 0.9;
   speech.pitch = 0.75;
   speech.volume = 1;
 
-  speechSynthesis.speak(speech);
+  window.speechSynthesis.speak(speech);
 }
 
 function respond(text) {
-  let answer = "";
-
   const message = text.toLowerCase();
+  let answer;
 
   if (message.includes("hallo")) {
     answer = "Hallo. SKYNET ist einsatzbereit.";
   }
   else if (message.includes("systemtest")) {
-    answer = "Systemtest erfolgreich. Alle Testfunktionen bereit.";
+    answer = "Systemtest erfolgreich.";
   }
   else if (message.includes("wie heißt du")) {
     answer = "Meine Bezeichnung lautet SKYNET.";
   }
   else if (message.includes("status")) {
-    answer = "SKYNET Version 1 Punkt 1 ist aktiv.";
+    answer = "SKYNET Version 1 Punkt 2 ist aktiv.";
+  }
+  else if (message.includes("test")) {
+    answer = "Sprachtest erfolgreich.";
   }
   else {
-    answer = "Befehl empfangen. Die KI-Verbindung wird in einer späteren Version aktiviert.";
+    answer =
+      "Befehl empfangen. Die KI-Verbindung ist noch nicht aktiviert.";
   }
 
   addMessage("SKYNET", answer);
@@ -236,56 +266,133 @@ input.addEventListener("keydown", function(event) {
   }
 });
 
+function toggleListening() {
+  if (listening && recognition) {
+    manuallyStopped = true;
+    recognition.stop();
+    return;
+  }
+
+  startListening();
+}
+
 function startListening() {
 
   if (!SpeechRecognition) {
-    statusText.textContent =
-      "SPRACHERKENNUNG NICHT VERFÜGBAR";
+    setStatus("NICHT UNTERSTÜTZT");
 
     addMessage(
-      "SKYNET",
-      "Dieser Browser unterstützt die Spracherkennung nicht."
+      "SYSTEM",
+      "Dieser Browser unterstützt die Web Speech API nicht."
     );
     return;
   }
 
-  if (recognition) {
-    recognition.stop();
-    return;
-  }
+  if (listening) return;
+
+  receivedResult = false;
+  recognitionError = false;
+  manuallyStopped = false;
 
   recognition = new SpeechRecognition();
 
   recognition.lang = "de-DE";
   recognition.continuous = false;
-  recognition.interimResults = false;
+  recognition.interimResults = true;
+  recognition.maxAlternatives = 1;
 
   recognition.onstart = function() {
-    statusText.textContent = "ICH HÖRE ZU";
+    listening = true;
+
+    setStatus("ICH HÖRE ZU");
     mic.classList.add("active");
+
+    hint.textContent =
+      "Jetzt sprechen – erneut tippen zum Stoppen";
+
+    addMessage(
+      "SYSTEM",
+      "Spracherkennung gestartet."
+    );
+  };
+
+  recognition.onaudiostart = function() {
+    addMessage(
+      "SYSTEM",
+      "Audioeingabe gestartet."
+    );
+  };
+
+  recognition.onspeechstart = function() {
+    setStatus("SPRACHE ERKANNT");
+
+    addMessage(
+      "SYSTEM",
+      "Spracheingang erkannt."
+    );
   };
 
   recognition.onresult = function(event) {
-    const text = event.results[0][0].transcript;
+    let finalText = "";
 
-    addMessage("DU", text);
-    respond(text);
+    for (
+      let i = event.resultIndex;
+      i < event.results.length;
+      i++
+    ) {
+      const result = event.results[i];
+
+      if (result.isFinal) {
+        finalText += result[0].transcript;
+      }
+    }
+
+    if (finalText.trim()) {
+      receivedResult = true;
+
+      addMessage("DU", finalText.trim());
+      respond(finalText.trim());
+    }
+  };
+
+  recognition.onnomatch = function() {
+    addMessage(
+      "SYSTEM",
+      "Sprache wurde nicht erkannt."
+    );
   };
 
   recognition.onerror = function(event) {
-    statusText.textContent = "MIKROFONFEHLER";
+    recognitionError = true;
+
+    setStatus("MIKROFONFEHLER");
 
     addMessage(
-      "SKYNET",
-      "Spracherkennung: " + event.error
+      "SYSTEM",
+      "Fehlercode: " + event.error
     );
   };
 
   recognition.onend = function() {
+    listening = false;
     mic.classList.remove("active");
 
-    if (statusText.textContent !== "MIKROFONFEHLER") {
-      statusText.textContent = "SYSTEM BEREIT";
+    hint.textContent =
+      "Zum Sprechen Mikrofon antippen";
+
+    if (
+      !receivedResult &&
+      !recognitionError &&
+      !manuallyStopped
+    ) {
+      addMessage(
+        "SYSTEM",
+        "Spracherkennung beendet, aber kein endgültiges Ergebnis empfangen."
+      );
+    }
+
+    if (!recognitionError) {
+      setStatus("SYSTEM BEREIT");
     }
 
     recognition = null;
@@ -295,8 +402,15 @@ function startListening() {
     recognition.start();
   }
   catch (error) {
+    listening = false;
     recognition = null;
-    statusText.textContent = "MIKROFONFEHLER";
+
+    setStatus("STARTFEHLER");
+
+    addMessage(
+      "SYSTEM",
+      "Startfehler: " + error.message
+    );
   }
 }
 
